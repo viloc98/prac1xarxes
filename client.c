@@ -3,6 +3,7 @@
 #include <string.h>
 #define DIMENSION       100 /* LA DIMENSIO INICIAL DELS STRINGS PER A DADES DEL CLIENT */
 
+char *fitxer_a_llegir;
 struct info_client
 {
 	char nom[DIMENSION];
@@ -11,6 +12,20 @@ struct info_client
 	char server_port[DIMENSION];
 };
 struct info_client client;
+
+void llegirArguments(int argc, char const *argv[])
+{
+	int i;
+	for (i = 0; i < argc; ++i)
+	{
+		if (strcmp(argv[i],"-c")==0)
+		{
+			fitxer_a_llegir = (char *) malloc(strlen(argv[i+1]));
+			strcpy(fitxer_a_llegir, argv[i+1]);
+			printf("%s\n", fitxer_a_llegir);
+		}
+	}
+}
 
 void llegirFitxerCfg()
 {
@@ -22,7 +37,7 @@ void llegirFitxerCfg()
 	int j=0;
 	int x=0;
 	FILE * f;
-	f = fopen("./practica1/client.cfg", "r");
+	f = fopen(fitxer_a_llegir, "r");
 
 	if (f==NULL) {fputs ("File error",stderr); exit (1);}
 	while(fgets(line, 256, f) != NULL){
@@ -57,8 +72,10 @@ void llegirFitxerCfg()
   printf("%s\n", client.server_IP);
   printf("%s\n", client.server_port);
 }
+
 int main (int argc, char const *argv[])
 {
+	llegirArguments(argc, argv);
 	llegirFitxerCfg();
   exit(0);
 }
