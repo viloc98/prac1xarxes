@@ -1,16 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #define DIMENSION       100 /* LA DIMENSIO INICIAL DELS STRINGS PER A DADES DEL CLIENT */
-
-
 
 #define REGISTER_REQ  0x00
 #define REGISTER_ACK  0x01
 #define REGISTER_NACK  0x02
 #define REGISTER_REJ  0x03
 #define ERROR  0x09
-
 
 char *file_to_read;
 struct info_client
@@ -21,6 +25,12 @@ struct info_client
 	char server_port[DIMENSION];
 };
 struct info_client client;
+
+struct sockaddr_in	addr_server,addr_cli;
+struct hostent *ent;
+int sockUDP, port;
+char num_random[7];
+char data[50];
 
 void llegirArguments(int argc, char const *argv[])
 {
@@ -80,9 +90,32 @@ void readFile()
   printf("%s\n", client.server_port);
 }
 
+void crearPaquet(unsigned int tipusPaquet, char* num_random, char* data)
+{
+	char paquet[78];
+	paquet[0] = tipusPaquet;
+	strcat(paquet, client.nom);
+	paquet[7]='\0';
+	strcat(paquet, client.mac);
+	paquet[18]='\0';
+	strcat(paquet,num_random);
+	paquet[25]='\0';
+	strcat(paquet, data);
+	paquet[77]='\0';
+	printf("%s\n", num_random);
+	printf("%s\n", paquet);
+}
+
 int main (int argc, char const *argv[])
 {
+	int i;
 	llegirArguments(argc, argv);
 	readFile();
+
+	for (i = 0; i < sizeof(num_random); ++i)
+	{
+		num_random[i]='0';
+	}
+	crearPaquet(REGISTER_REQ, num_random, data);
   exit(0);
 }
