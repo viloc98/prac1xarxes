@@ -29,7 +29,7 @@ struct info_client client;
 struct sockaddr_in	addr_server,addr_cli;
 struct hostent *ent;
 int sockUDP, port;
-char num_random[7];
+char num_random[6];
 char data[50];
 
 void llegirArguments(int argc, char const *argv[])
@@ -90,20 +90,37 @@ void readFile()
   printf("%s\n", client.server_port);
 }
 
-void crearPaquet(unsigned int tipusPaquet, char* num_random, char* data)
+char* crearPaquet(unsigned int tipusPaquet, char* num_random, char* data)
 {
-	char paquet[78];
-	paquet[0] = tipusPaquet;
-	strcat(paquet, client.nom);
+	int i;
+	int j;
+	char* paquet = malloc(78);
+	paquet[0]=tipusPaquet;
+	j=0;
+	for (i = 1; i < 7; ++i)
+	{
+		paquet[i]=client.nom[j];
+		j++;
+	}
 	paquet[7]='\0';
-	strcat(paquet, client.mac);
-	paquet[18]='\0';
-	strcat(paquet,num_random);
-	paquet[25]='\0';
-	strcat(paquet, data);
-	paquet[77]='\0';
+	j=0;
+	for (i = 8; i < 20; ++i)
+	{
+		paquet[i]=client.mac[j];
+		j++;
+	}
+	j=0;
 	printf("%s\n", num_random);
-	printf("%s\n", paquet);
+	for (i = 21; i < 28; ++i)
+	{
+		paquet[i]=num_random[j];
+		j++;
+	}
+	for (i = 29; i<78; ++i)
+	{
+		paquet[i]='\0';
+	}
+	return paquet;
 }
 
 int main (int argc, char const *argv[])
