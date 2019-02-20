@@ -26,11 +26,12 @@ struct info_client
 };
 struct info_client client;
 
-struct sockaddr_in	addr_server,addr_cli;
-struct hostent *ent;
+struct sockaddr_in     servaddr, addr_cli;
 int sockUDP, port;
+
 char num_random[6];
 char data[50];
+char* paquetbo;
 
 void llegirArguments(int argc, char const *argv[])
 {
@@ -94,8 +95,10 @@ char* crearPaquet(unsigned int tipusPaquet, char* num_random, char* data)
 {
 	int i;
 	int j;
-	char* paquet = malloc(78);
+	char* paquet;
+	paquet = malloc(78);
 	paquet[0]=tipusPaquet;
+	printf("%x\n", tipusPaquet);
 	j=0;
 	for (i = 1; i < 7; ++i)
 	{
@@ -104,28 +107,67 @@ char* crearPaquet(unsigned int tipusPaquet, char* num_random, char* data)
 	}
 	paquet[7]='\0';
 	j=0;
-	for (i = 8; i < 20; ++i)
+	for (i = 8; i < 21; ++i)
 	{
 		paquet[i]=client.mac[j];
 		j++;
 	}
 	j=0;
-	printf("%s\n", num_random);
-	for (i = 21; i < 28; ++i)
+	for (i = 21; i < 27; ++i)
 	{
 		paquet[i]=num_random[j];
 		j++;
 	}
-	for (i = 29; i<78; ++i)
+	for (i = 27; i < 78; ++i)
 	{
 		paquet[i]='\0';
 	}
 	return paquet;
 }
 
+void obrirSocketUDP()
+{
+
+	sockUDP=socket(AF_INET,SOCK_DGRAM,0);
+	if(sockUDP<0)
+	{
+		fprintf(stderr,"No puc obrir socket!!!\n");
+		exit(-1);
+	}
+
+	memset(&addr_cli,0,sizeof (struct sockaddr_in));
+	addr_cli.sin_family=AF_INET;
+	addr_cli.sin_addr.s_addr=htonl(INADDR_ANY);
+	addr_cli.sin_port=htons(0);
+
+	/* Fem el binding */
+	if(bind(sockUDP,(struct sockaddr *)&addr_cli,sizeof(struct sockaddr_in))<0)
+	{
+		fprintf(stderr,"No puc fer el binding del socket!!!\n");
+								exit(-2);
+	}
+
+    memset(&servaddr, 0, sizeof(servaddr));
+
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(atoi(client.server_port));
+    servaddr.sin_addr.s_addr = atoi(client.server_IP);
+}
+void enviarREGISTER_REQ()
+{
+	paquetbo=crearPaquet(REGISTER_REQ, num_random, data);
+	a=sendto(sockUDP,paquetbo,78,0,(struct sockaddr*)&servaddr,sizeof(servaddr));
+				if(a<0)
+					{
+							fprintf(stderr,"Error al sendto\n");
+							exit(-2);
+					}
+}
+
+
 int main (int argc, char const *argv[])
 {
-	int i;
+	int i, n, len, a;
 	llegirArguments(argc, argv);
 	readFile();
 
@@ -133,6 +175,17 @@ int main (int argc, char const *argv[])
 	{
 		num_random[i]='0';
 	}
-	crearPaquet(REGISTER_REQ, num_random, data);
+	obrirSocketUDP();
+	enviarREGISTER_REQ();
+	n = recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,sizeof(servaddr));
+
+	for (i = 0; i < 78; i++) {
+		printf("%c", paquetbo[i]);
+	}
+
+	close(sockUDP);
+
+
+
   exit(0);
 }
