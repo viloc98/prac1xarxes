@@ -1,20 +1,42 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
+#include <sys/time.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 
 #define DIMENSION       100 /* LA DIMENSIO INICIAL DELS STRINGS PER A DADES DEL CLIENT */
+
 
 #define REGISTER_REQ  0x00
 #define REGISTER_ACK  0x01
 #define REGISTER_NACK  0x02
 #define REGISTER_REJ  0x03
 #define ERROR  0x09
+
+/*Possibles estats*/
+#define DISCONNECTED 0
+#define WAIT_REG 1
+#define REGISTERED 2
+#define ALIVE 3
+
+/*Variables temps*/
+float t = 2.0;
+int n = 3;
+int m = 4;
+int p = 8;
+int s = 5;
+int q = 3;
+
+
+
+float temps_entre_paquets;
+int estat;
+int intents_conexio;
 
 char *file_to_read;
 struct info_client
@@ -27,11 +49,16 @@ struct info_client
 struct info_client client;
 
 struct sockaddr_in     servaddr, addr_cli;
+
+struct timeval timeout;
 int sockUDP, port;
 
-char num_random[6];
+char num_random[7];
 char data[50];
 char* paquetbo;
+char nom_server[7];
+
+
 
 void llegirArguments(int argc, char const *argv[])
 {
@@ -98,7 +125,6 @@ char* crearPaquet(unsigned int tipusPaquet, char* num_random, char* data)
 	char* paquet;
 	paquet = malloc(78);
 	paquet[0]=tipusPaquet;
-	printf("%x\n", tipusPaquet);
 	j=0;
 	for (i = 1; i < 7; ++i)
 	{
@@ -131,7 +157,7 @@ void obrirSocketUDP()
 	sockUDP=socket(AF_INET,SOCK_DGRAM,0);
 	if(sockUDP<0)
 	{
-		fprintf(stderr,"No puc obrir socket!!!\n");
+		printf("No puc obrir socket!!!\n");
 		exit(-1);
 	}
 
@@ -155,6 +181,17 @@ void obrirSocketUDP()
 }
 void enviarREGISTER_REQ()
 {
+	int a;
+	time_t timer;
+	char buffer[26];
+	struct tm* tm_info;
+
+	time(&timer);
+	tm_info = localtime(&timer);
+
+	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+
+	printf("%s: envio paquet\n", buffer);
 	paquetbo=crearPaquet(REGISTER_REQ, num_random, data);
 	a=sendto(sockUDP,paquetbo,78,0,(struct sockaddr*)&servaddr,sizeof(servaddr));
 				if(a<0)
@@ -164,10 +201,80 @@ void enviarREGISTER_REQ()
 					}
 }
 
+void tractarPaquetACK()
+{
+	int i, n;
+	socklen_t laddr_server;
+
+	timeout.tv_sec = temps_entre_paquets;
+	timeout.tv_usec = 0.0;
+
+	if (setsockopt(sockUDP, SOL_SOCKET, SO_RCVTIMEO,&timeout,sizeof(timeout)))
+			printf("setsockopt failed\n");
+
+	n = recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
+
+	for (i = 0; i < 78; i++) {
+		printf("%c", paquetbo[i]);
+	}
+
+	if(paquetbo[0]==REGISTER_ACK)
+	{
+		estat=REGISTERED;
+	}
+
+	for (i = 1;i < 8; ++i) {
+		nom_server[i]=paquetbo[i];
+	}
+}
+
+void faseREGISTER_ACK()
+{
+	int i;
+	int num_paquets_enviats;
+	intents_conexio=0;
+	while (intents_conexio<q)
+	{
+		intents_conexio++;
+		printf("intent de conexio: %i\n", intents_conexio);
+		num_paquets_enviats=0;
+		temps_entre_paquets = t;
+		for (i=1; i<n; ++i)
+		{
+			enviarREGISTER_REQ();
+			num_paquets_enviats++;
+			tractarPaquetACK();
+			printf("%i\n", estat);
+			if (estat==REGISTERED)
+			{
+				return;
+			}
+		}
+		while (estat==WAIT_REG&&num_paquets_enviats<p)
+		{
+			if (temps_entre_paquets<(m*t))
+			{
+				temps_entre_paquets = temps_entre_paquets + t;
+			}
+			enviarREGISTER_REQ();
+			num_paquets_enviats++;
+			printf("%i\n", num_paquets_enviats);
+			tractarPaquetACK();
+			if (estat==REGISTERED)
+			{
+				return;
+			}
+		}
+		printf("Connexio fallida!!!\n");
+		sleep(s);
+	}
+}
 
 int main (int argc, char const *argv[])
 {
-	int i, n, len, a;
+	int i, n;
+
+	estat = DISCONNECTED;
 	llegirArguments(argc, argv);
 	readFile();
 
@@ -176,13 +283,10 @@ int main (int argc, char const *argv[])
 		num_random[i]='0';
 	}
 	obrirSocketUDP();
-	enviarREGISTER_REQ();
-	n = recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,sizeof(servaddr));
 
-	for (i = 0; i < 78; i++) {
-		printf("%c", paquetbo[i]);
-	}
-
+	estat = WAIT_REG;
+	printf("entro a register ack\n");
+	faseREGISTER_ACK();
 	close(sockUDP);
 
 
