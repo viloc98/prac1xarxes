@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,21 +9,31 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
+#include <pthread.h>
 
 #define DIMENSION       100 /* LA DIMENSIO INICIAL DELS STRINGS PER A DADES DEL CLIENT */
 
-
+/*Tipus de paquets de registre*/
 #define REGISTER_REQ  0x00
 #define REGISTER_ACK  0x01
 #define REGISTER_NACK  0x02
 #define REGISTER_REJ  0x03
 #define ERROR  0x09
 
+/*Tipus de paquets comunicació periòdica*/
+#define ALIVE_INF  0x10
+#define ALIVE_ACK  0x11
+#define ALIVE_NACK  0x12
+#define ALIVE_REJ  0x13
+
 /*Possibles estats*/
 #define DISCONNECTED 0
 #define WAIT_REG 1
 #define REGISTERED 2
 #define ALIVE 3
+
+/*Estat propi utilitzat a funció tractarPaquetACK*/
+#define UNKNOWN 99
 
 /*Variables temps*/
 float t = 2.0;
@@ -31,12 +42,13 @@ int m = 4;
 int p = 8;
 int s = 5;
 int q = 3;
+int r = 3;
 
 
 
 float temps_entre_paquets;
 int estat;
-int intents_conexio;
+int intents_conexio = 0;
 
 char *file_to_read;
 struct info_client
@@ -56,9 +68,11 @@ int sockUDP, port;
 char num_random[7];
 char data[50];
 char* paquetbo;
-char nom_server[7];
 
+pthread_t threadEnviar, threadRebre;
 
+void faseREGISTER_ACK();
+void faseALIVE();
 
 void llegirArguments(int argc, char const *argv[])
 {
@@ -111,11 +125,6 @@ void readFile()
 	strcpy(client.mac, resultat[1]);
 	strcpy(client.server_IP, resultat[2]);
 	strcpy(client.server_port, resultat[3]);
-
-  printf("%s\n", client.nom);
-  printf("%s\n", client.mac);
-  printf("%s\n", client.server_IP);
-  printf("%s\n", client.server_port);
 }
 
 char* crearPaquet(unsigned int tipusPaquet, char* num_random, char* data)
@@ -203,7 +212,7 @@ void enviarREGISTER_REQ()
 
 void tractarPaquetACK()
 {
-	int i, n;
+	int i, n, j;
 	socklen_t laddr_server;
 
 	timeout.tv_sec = temps_entre_paquets;
@@ -218,13 +227,50 @@ void tractarPaquetACK()
 		printf("%c", paquetbo[i]);
 	}
 
-	if(paquetbo[0]==REGISTER_ACK)
+	if(paquetbo[0]!=REGISTER_REQ)
+	{
+		estat=UNKNOWN;
+	}
+	j=0;
+	for (i = 21; i < 28; ++i)
+	{
+		num_random[j]=paquetbo[i];
+		j++;
+	}
+	j=0;
+	for (i = 28; i < 78; ++i)
+	{
+		data[j]=paquetbo[i];
+		j++;
+	}
+	printf("%s\n", num_random);
+	printf("%s\n", data);
+}
+
+
+void camviarEstatRej()
+{
+	if (paquetbo[0]==REGISTER_ACK)
 	{
 		estat=REGISTERED;
-	}
+		faseALIVE();
+	} else if (paquetbo[0]==REGISTER_REJ){
+		estat=DISCONNECTED; /*Pregunta k sa d fer aki*/
+	} else if (paquetbo[0]==REGISTER_NACK){
+		if (intents_conexio==q)
+		{
+			printf("Rebut paquet REGISTER_NACK i intents de conexio maxims realitzats. Tancant client.\n");
+			/*falta informar de error*/
+			exit(0);
+		} else {
+			printf("Rebut paquet REGISTER_NACK iniciant intent de conexio nou.\n");
+			faseREGISTER_ACK();
+			camviarEstatRej();
+		}
 
-	for (i = 1;i < 8; ++i) {
-		nom_server[i]=paquetbo[i];
+	} else {
+		printf("Paquet rebut desconegut, tancant el client.\n");
+		exit(0);
 	}
 }
 
@@ -232,7 +278,6 @@ void faseREGISTER_ACK()
 {
 	int i;
 	int num_paquets_enviats;
-	intents_conexio=0;
 	while (intents_conexio<q)
 	{
 		intents_conexio++;
@@ -245,7 +290,7 @@ void faseREGISTER_ACK()
 			num_paquets_enviats++;
 			tractarPaquetACK();
 			printf("%i\n", estat);
-			if (estat==REGISTERED)
+			if (estat!=WAIT_REG)
 			{
 				return;
 			}
@@ -260,7 +305,7 @@ void faseREGISTER_ACK()
 			num_paquets_enviats++;
 			printf("%i\n", num_paquets_enviats);
 			tractarPaquetACK();
-			if (estat==REGISTERED)
+			if (estat!=WAIT_REG)
 			{
 				return;
 			}
@@ -268,7 +313,81 @@ void faseREGISTER_ACK()
 		printf("Connexio fallida!!!\n");
 		sleep(s);
 	}
+	exit(0);
 }
+
+void * enviarALIVE_INF()
+{
+	int a;
+	time_t timer;
+	char buffer[26];
+	struct tm* tm_info;
+
+	time(&timer);
+	tm_info = localtime(&timer);
+
+	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+
+	printf("%s: envio paquet ALIVE_INF\n", buffer);
+	paquetbo=crearPaquet(ALIVE_INF, num_random, data);
+	a=sendto(sockUDP,paquetbo,78,0,(struct sockaddr*)&servaddr,sizeof(servaddr));
+				if(a<0)
+					{
+							fprintf(stderr,"Error al sendto\n");
+							exit(-2);
+					}
+}
+void * tractarALIVE_ACK()
+{
+	int i, n, j;
+	socklen_t laddr_server;
+
+	timeout.tv_sec = 3.0;
+	timeout.tv_usec = 0.0;
+
+	printf("Entro a tractarALIVE_ACK\n");
+
+	if (setsockopt(sockUDP, SOL_SOCKET, SO_RCVTIMEO,&timeout,sizeof(timeout)))
+			printf("setsockopt failed\n");
+
+	n = recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
+
+	for (i = 0; i < 78; i++) {
+		printf("%c", paquetbo[i]);
+	}
+
+	if(paquetbo[0]!=ALIVE_INF)
+	{
+		estat=UNKNOWN;
+	}
+	j=0;
+	for (i = 21; i < 28; ++i)
+	{
+		num_random[j]=paquetbo[i];
+		j++;
+	}
+	j=0;
+	for (i = 28; i < 78; ++i)
+	{
+		data[j]=paquetbo[i];
+		j++;
+	}
+	printf("%s\n", num_random);
+	printf("%s\n", data);
+}
+
+void faseALIVE()
+{
+	int prova = 1;
+	while (prova == 1) {
+		pthread_create(&threadEnviar, NULL, enviarALIVE_INF, NULL);
+		pthread_create(&threadRebre, NULL, tractarALIVE_ACK, NULL);
+		sleep(r);
+	}
+}
+
+
+
 
 int main (int argc, char const *argv[])
 {
@@ -287,9 +406,11 @@ int main (int argc, char const *argv[])
 	estat = WAIT_REG;
 	printf("entro a register ack\n");
 	faseREGISTER_ACK();
+	camviarEstatRej();
+
+	pthread_join(threadEnviar,NULL);
+	pthread_join(threadRebre,NULL);
+
 	close(sockUDP);
-
-
-
   exit(0);
 }
