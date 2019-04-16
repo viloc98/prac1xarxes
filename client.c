@@ -66,10 +66,17 @@ struct timeval timeout;
 int sockUDP, port;
 
 char num_random[7];
+char nom_server[7];
+char mac_address_server[13];
+char num_randomALIVE[7];
+char nom_serverALIVE[7];
+char mac_address_serverALIVE[13];
 char data[50];
 char* paquetbo;
+char paquetrebutbo[78];
 
 pthread_t threadEnviar, threadRebre;
+int num_alives_per_rebre = 0;
 
 void faseREGISTER_ACK();
 void faseALIVE();
@@ -232,6 +239,18 @@ void tractarPaquetACK()
 		estat=UNKNOWN;
 	}
 	j=0;
+	for (i = 1; i < 8; ++i)
+	{
+		nom_server[j]=paquetbo[i];
+		j++;
+	}
+	j=0;
+	for (i = 8; i < 21; ++i)
+	{
+		mac_address_server[j]=paquetbo[i];
+		j++;
+	}
+	j=0;
 	for (i = 21; i < 28; ++i)
 	{
 		num_random[j]=paquetbo[i];
@@ -243,8 +262,6 @@ void tractarPaquetACK()
 		data[j]=paquetbo[i];
 		j++;
 	}
-	printf("%s\n", num_random);
-	printf("%s\n", data);
 }
 
 
@@ -289,7 +306,6 @@ void faseREGISTER_ACK()
 			enviarREGISTER_REQ();
 			num_paquets_enviats++;
 			tractarPaquetACK();
-			printf("%i\n", estat);
 			if (estat!=WAIT_REG)
 			{
 				return;
@@ -303,7 +319,6 @@ void faseREGISTER_ACK()
 			}
 			enviarREGISTER_REQ();
 			num_paquets_enviats++;
-			printf("%i\n", num_paquets_enviats);
 			tractarPaquetACK();
 			if (estat!=WAIT_REG)
 			{
@@ -336,6 +351,7 @@ void * enviarALIVE_INF()
 							fprintf(stderr,"Error al sendto\n");
 							exit(-2);
 					}
+	num_alives_per_rebre = num_alives_per_rebre + 1;
 }
 void * tractarALIVE_ACK()
 {
@@ -350,44 +366,51 @@ void * tractarALIVE_ACK()
 	if (setsockopt(sockUDP, SOL_SOCKET, SO_RCVTIMEO,&timeout,sizeof(timeout)))
 			printf("setsockopt failed\n");
 
-	n = recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
-
+	printf("setsockopt\n");
+	n = recvfrom(sockUDP, paquetrebutbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
+	printf("recvfrom\n");
 	for (i = 0; i < 78; i++) {
-		printf("%c", paquetbo[i]);
+		printf("%c", paquetrebutbo[i]);
 	}
-
-	if(paquetbo[0]!=ALIVE_INF)
+	if(paquetrebutbo[0]!=ALIVE_INF)
 	{
 		estat=UNKNOWN;
+	} else if (estat == REGISTERED){
+		estat = ALIVE;
+	}
+	j=0;
+	for (i = 1; i < 8; ++i)
+	{
+		nom_serverALIVE[j]=paquetrebutbo[i];
+		j++;
+	}
+	j=0;
+	for (i = 8; i < 21; ++i)
+	{
+		mac_address_serverALIVE[j]=paquetrebutbo[i];
+		j++;
 	}
 	j=0;
 	for (i = 21; i < 28; ++i)
 	{
-		num_random[j]=paquetbo[i];
+		num_randomALIVE[j]=paquetrebutbo[i];
 		j++;
 	}
-	j=0;
-	for (i = 28; i < 78; ++i)
-	{
-		data[j]=paquetbo[i];
-		j++;
+	if (strcmp(num_randomALIVE,num_random)==0&&strcmp(nom_serverALIVE,nom_server)==0&&strcmp(mac_address_serverALIVE,mac_address_server)==0) {
+		printf("Rebut alive reiniciant comptador\n");
+		num_alives_per_rebre = 0;
 	}
-	printf("%s\n", num_random);
-	printf("%s\n", data);
 }
 
 void faseALIVE()
 {
-	int prova = 1;
-	while (prova == 1) {
+
+	while (num_alives_per_rebre<=r) {
 		pthread_create(&threadEnviar, NULL, enviarALIVE_INF, NULL);
 		pthread_create(&threadRebre, NULL, tractarALIVE_ACK, NULL);
 		sleep(r);
 	}
 }
-
-
-
 
 int main (int argc, char const *argv[])
 {
