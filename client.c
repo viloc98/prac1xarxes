@@ -43,6 +43,7 @@ int p = 8;
 int s = 5;
 int q = 3;
 int r = 3;
+int u = 3;
 
 
 
@@ -197,7 +198,7 @@ void obrirSocketUDP()
 }
 void enviarREGISTER_REQ()
 {
-	int a;
+	int a, j;
 	time_t timer;
 	char buffer[26];
 	struct tm* tm_info;
@@ -208,6 +209,11 @@ void enviarREGISTER_REQ()
 	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
 
 	printf("%s: envio paquet\n", buffer);
+	for (j = 0; j < sizeof(num_random); ++j)
+	{
+		num_random[j]='0';
+	}
+	printf("%s\n", num_random);
 	paquetbo=crearPaquet(REGISTER_REQ, num_random, data);
 	a=sendto(sockUDP,paquetbo,78,0,(struct sockaddr*)&servaddr,sizeof(servaddr));
 				if(a<0)
@@ -219,7 +225,7 @@ void enviarREGISTER_REQ()
 
 void tractarPaquetACK()
 {
-	int i, n, j;
+	int i, j;
 	socklen_t laddr_server;
 
 	timeout.tv_sec = temps_entre_paquets;
@@ -228,7 +234,7 @@ void tractarPaquetACK()
 	if (setsockopt(sockUDP, SOL_SOCKET, SO_RCVTIMEO,&timeout,sizeof(timeout)))
 			printf("setsockopt failed\n");
 
-	n = recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
+	recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
 
 	for (i = 0; i < 78; i++) {
 		printf("%c", paquetbo[i]);
@@ -267,12 +273,19 @@ void tractarPaquetACK()
 
 void camviarEstatRej()
 {
+	int i;
 	if (paquetbo[0]==REGISTER_ACK)
 	{
+		printf("Client en estat REGISTERED.\n");
 		estat=REGISTERED;
-		faseALIVE();
+		for (i = 0; i < 78; ++i) /*resetejem paquet*/
+		{
+			paquetbo[i] = '\0';
+		}
 	} else if (paquetbo[0]==REGISTER_REJ){
-		estat=DISCONNECTED; /*Pregunta k sa d fer aki*/
+		estat=DISCONNECTED;
+		printf("Rebut REGISTER_REJ, tancant el client.\n");
+		exit(0);
 	} else if (paquetbo[0]==REGISTER_NACK){
 		if (intents_conexio==q)
 		{
@@ -284,7 +297,6 @@ void camviarEstatRej()
 			faseREGISTER_ACK();
 			camviarEstatRej();
 		}
-
 	} else {
 		printf("Paquet rebut desconegut, tancant el client.\n");
 		exit(0);
@@ -355,7 +367,7 @@ void * enviarALIVE_INF()
 }
 void * tractarALIVE_ACK()
 {
-	int i, n, j;
+	int i, j;
 	socklen_t laddr_server;
 
 	timeout.tv_sec = 3.0;
@@ -365,18 +377,21 @@ void * tractarALIVE_ACK()
 
 	if (setsockopt(sockUDP, SOL_SOCKET, SO_RCVTIMEO,&timeout,sizeof(timeout)))
 			printf("setsockopt failed\n");
-
-	printf("setsockopt\n");
-	n = recvfrom(sockUDP, paquetrebutbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
-	printf("recvfrom\n");
-	for (i = 0; i < 78; i++) {
-		printf("%c", paquetrebutbo[i]);
-	}
-	if(paquetrebutbo[0]!=ALIVE_INF)
+	recvfrom(sockUDP, paquetrebutbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
+	if(paquetrebutbo[0]==ALIVE_ACK&&estat == REGISTERED)
 	{
-		estat=UNKNOWN;
-	} else if (estat == REGISTERED){
+		estat=ALIVE;
+		printf("Client en estat ALIVE.\n");
+	} else if (paquetrebutbo[0]==ALIVE_ACK){
 		estat = ALIVE;
+	} else if (paquetrebutbo[0]==ALIVE_NACK) {
+		return NULL;
+	} else if (paquetrebutbo[0]==ALIVE_REJ) {
+		estat = DISCONNECTED;
+		printf("Client en estat DISCONNECTED. Rebut ALIVE_REJ. Iniciant nou proces registre.\n");
+		intents_conexio = 0;
+		faseREGISTER_ACK();
+		camviarEstatRej();
 	}
 	j=0;
 	for (i = 1; i < 8; ++i)
@@ -400,39 +415,40 @@ void * tractarALIVE_ACK()
 		printf("Rebut alive reiniciant comptador\n");
 		num_alives_per_rebre = 0;
 	}
+	for (i = 0; i < 78; ++i) /*resetejem paquet*/
+	{
+		paquetrebutbo[i] = '\0';
+	}
 }
 
 void faseALIVE()
 {
 
-	while (num_alives_per_rebre<=r) {
+	while (num_alives_per_rebre<=u) {
 		pthread_create(&threadEnviar, NULL, enviarALIVE_INF, NULL);
 		pthread_create(&threadRebre, NULL, tractarALIVE_ACK, NULL);
 		sleep(r);
 	}
+
+	pthread_join(threadEnviar,NULL);
+	pthread_join(threadRebre,NULL);
 }
 
 int main (int argc, char const *argv[])
 {
-	int i, n;
-
 	estat = DISCONNECTED;
 	llegirArguments(argc, argv);
 	readFile();
-
-	for (i = 0; i < sizeof(num_random); ++i)
-	{
-		num_random[i]='0';
-	}
 	obrirSocketUDP();
 
 	estat = WAIT_REG;
 	printf("entro a register ack\n");
 	faseREGISTER_ACK();
 	camviarEstatRej();
+	if (estat==REGISTERED) {
+		faseALIVE();
+	}
 
-	pthread_join(threadEnviar,NULL);
-	pthread_join(threadRebre,NULL);
 
 	close(sockUDP);
   exit(0);
