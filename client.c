@@ -213,7 +213,6 @@ void enviarREGISTER_REQ()
 	{
 		num_random[j]='0';
 	}
-	printf("%s\n", num_random);
 	paquetbo=crearPaquet(REGISTER_REQ, num_random, data);
 	a=sendto(sockUDP,paquetbo,78,0,(struct sockaddr*)&servaddr,sizeof(servaddr));
 				if(a<0)
@@ -364,6 +363,7 @@ void * enviarALIVE_INF()
 							exit(-2);
 					}
 	num_alives_per_rebre = num_alives_per_rebre + 1;
+	return NULL;
 }
 void * tractarALIVE_ACK()
 {
@@ -419,6 +419,7 @@ void * tractarALIVE_ACK()
 	{
 		paquetrebutbo[i] = '\0';
 	}
+	return NULL;
 }
 
 void faseALIVE()
