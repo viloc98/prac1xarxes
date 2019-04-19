@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import socket, sys, struct, time, threading, os
+import socket, sys, struct, time, threading, os, random
 
 # ESTATS
 DISCONNECTED = 1
@@ -29,26 +29,27 @@ def agafardada2(int,list):
 	return h[0]
 
 def lectura_fitxer_cfg():
-	global nomServidor, MACServidor, UDPport, TCPport
+	global nom_servidor, MACServidor, UDPport, TCPport
 	f=open("server.cfg","r")
 	linea = f.readlines()
 	f.close()
-	nomServidor = agafardada(0,linea)
+	nom_servidor = agafardada(0,linea)
 	MACServidor = agafardada(1,linea)
 	UDPport = int(agafardada(2,linea))
 	TCPport = int(agafardada(3,linea))
 
 def lectura_fitxer_equips():
-	global llistaMAC, llistaNomsEquips
+	global llistaMAC, diccionari_noms_equips
 	f=open("equips.dat","r")
 	linea = f.readlines()
 	f.close()
 	llistaMAC = []
-	llistaNomsEquips = []
+	diccionari_noms_equips = {}
 	for x in (range(len(linea))):
 		if len(linea[x].strip()) != 0 :
 			llistaMAC.append(agafardada(x, linea))
-			llistaNomsEquips.append(agafardada2(x, linea))
+			diccionari_noms_equips[(agafardada2(x, linea))] = DISCONNECTED
+	print diccionari_noms_equips
 
 def obrir_socket_UDP():
 	global socket_udp
@@ -71,7 +72,7 @@ def tractar_paquet(paquet):
 	nom_client = nom_client.split('\0')
 	nom_client = nom_client[0]
 	MAC_client = paquet [8:20]
-	num_random = paquet [21:26]
+	num_random = paquet [21:27]
 
 def can_register():
 	global nom_client
@@ -79,7 +80,7 @@ def can_register():
 	j = 0
 	if MAC_client in llistaMAC:
 		i = 1
-	if nom_client in llistaNomsEquips:
+	if nom_client in diccionari_noms_equips:
 		j = 1
 
 	if i==1 and j==1:
@@ -87,7 +88,30 @@ def can_register():
 	else:
 		return False
 
+def crear_paquet(tipus_paquet, num_random):
+	if tipus_paquet == REGISTER_ACK:
+		package = struct.pack('B',tipus_paquet) + nom_servidor + "\0" + MACServidor + "\0" + num_random + "\0" + str(TCPport) + "\0" + struct.pack('70B',*([0]* 70))
+	elif tipus_paquet == REGISTER_NACK:
+		package = struct.pack('B',tipus_paquet) + "000000" + "\0" + "000000000000" + "\0" + num_random + "\0" + "ERROR: Numero aleatori incorrecte." + "\0" + struct.pack('70B',*([0]* 70))
+	elif tipus_paquet == REGISTER_REJ:
+		package = struct.pack('B',tipus_paquet) + "000000" + "\0" + "000000000000" + "\0" + num_random + "\0" + "ERROR: Client no autoritzat a registrar-se" + "\0" + struct.pack('70B',*([0]* 70))
+	return package
 
+def respondre_registre():
+	global num_random
+	if diccionari_noms_equips.get(nom_client) == DISCONNECTED:
+		if num_random=="000000":
+			num_random = ""
+			for x in range(6):
+				num_random = num_random + str(random.randint(0,9))
+			paquet = crear_paquet(REGISTER_ACK, num_random)
+			diccionari_noms_equips[nom_client] = REGISTERED
+		else:
+			paquet = crear_paquet(REGISTER_NACK, "000000")
+	else:
+		paquet = crear_paquet(REGISTER_ACK, num_random)
+
+	socket_udp.sendto(paquet, address)
 
 
 lectura_fitxer_cfg()
@@ -98,8 +122,7 @@ while True:
 	data, address = socket_udp.recvfrom(78)
 	tractar_paquet(data)
 	if can_register():
-		print "paquet correcte"
-		paquet = struct.pack('B',REGISTER_ACK) + "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-		socket_udp.sendto(paquet, address)
+		respondre_registre()
 	else:
-		print "paquet incorrecte"
+		paquet = crear_paquet(REGISTER_REJ, "000000")
+		socket_udp.sendto(paquet, address)
