@@ -447,7 +447,6 @@ int main (int argc, char const *argv[])
 		printf("%s: MSG: =>  Equip passa a l'estat: REGISTERED\n", buffer);
 		pthread_create(&threadFaseAlive, NULL, faseALIVE, NULL);
 	}
-
 	while (num_alives_per_rebre<=u) {
 		if(poll(&mypoll, 1, 100) )
 		{
@@ -457,9 +456,7 @@ int main (int argc, char const *argv[])
 					exit(0);
 				}
 		}
-
 	}
-
 	pthread_join(threadFaseAlive,NULL);
 	close(sockUDP);
   exit(0);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import socket, sys, struct, time, threading, os, random
+import socket, sys, struct, time, threading, os, random, threading, select
 
 # ESTATS
 DISCONNECTED = 1
@@ -8,6 +8,7 @@ WAIT_REG = 2
 REGISTERED = 3
 ALIVE = 4
 
+estatAlletres={1:"DISCONNECTED", 2:"WAIT_REG", 3:"REGISTERED", 163:"ALIVE"}
 
 # TIPUS DE PAQUETS
 REGISTER_REQ = 0x00
@@ -33,9 +34,24 @@ def agafardada2(int,list):
 	h = h.split(' ')
 	return h[0]
 
+def triarclient(argv):
+	try:
+		if argv[1]!="-c":
+			print "Error arguments. Exemple -c nomarxiuclient(client1.cfg). Si no s'introdueix res s'obrira client.cfg"
+			exit(0)
+		return argv[2]
+
+	except Exception as e:
+		fitxer_cfg = "server.cfg"
+		return fitxer_cfg
+
 def lectura_fitxer_cfg():
 	global nom_servidor, MACServidor, UDPport, TCPport
-	f=open("server.cfg","r")
+	try:
+		f=open(triarclient(sys.argv),"r")
+	except:
+		print "No es pot obrir fitxer configuració, tancant servidor."
+		exit(0)
 	linea = f.readlines()
 	f.close()
 	nom_servidor = agafardada(0,linea)
@@ -122,11 +138,11 @@ def respondre_registre(): ## TODO: Falta fer kuan adressa diferent
 	socket_udp.sendto(paquet, address)
 
 def mantenir_comunicacio():
-	global num_random
+	global num_random, address
 	address_bo = address
 	num_random_bo = num_random
 	data, address = socket_udp.recvfrom(78)
-	tractar_paquet()
+	tractar_paquet(data)
 	if can_answer() and address_bo==address and num_random_bo == num_random:
 		paquet = crear_paquet(ALIVE_ACK, num_random)
 	elif can_answer():
@@ -135,18 +151,42 @@ def mantenir_comunicacio():
 		paquet = crear_paquet(ALIVE_REJ, num_random)
 	socket_udp.sendto(paquet, address)
 
-
-lectura_fitxer_cfg()
-lectura_fitxer_equips()
-obrir_socket_UDP()
-
-while True:
+def atendre_peticions():
+	global address, stop_alives
 	data, address = socket_udp.recvfrom(78)
 	tractar_paquet(data)
 	if can_answer():
 		respondre_registre()
 		while True:
 			mantenir_comunicacio()
+			if stop_alives == True:
+				break
 	else:
 		paquet = crear_paquet(REGISTER_REJ, "000000")
 		socket_udp.sendto(paquet, address)
+
+def atendre_comandes():
+	comanda = raw_input()
+	if comanda == "quit":
+		os._exit(1)
+	elif comanda == "list":
+		print "********************** LLISTA EQUIPS *************************"
+		for x, y in diccionari_noms_equips.items():
+		  print x, y
+		print "\n************************************************************"
+	else:
+		print "Comanda no reconeguda."
+
+lectura_fitxer_cfg()
+lectura_fitxer_equips()
+obrir_socket_UDP()
+stop_alives = False
+while True:
+	readable, writable, exceptional = select.select([socket_udp, sys.stdin], [], [])
+	for s in readable:
+		if s is socket_udp:
+			t = threading.Thread(target=atendre_peticions)
+			t.start()
+		else:
+			stop_alives = True
+			atendre_comandes()
