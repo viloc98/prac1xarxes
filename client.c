@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <time.h>
 #include <pthread.h>
+#include <poll.h>
+
 
 #define DIMENSION       100 /* LA DIMENSIO INICIAL DELS STRINGS PER A DADES DEL CLIENT */
 
@@ -76,11 +78,11 @@ char data[50];
 char* paquetbo;
 char paquetrebutbo[78];
 
-pthread_t threadEnviar, threadRebre;
+pthread_t threadEnviar, threadRebre, threadFaseAlive;
 int num_alives_per_rebre = 0;
 
 void faseREGISTER_ACK();
-void faseALIVE();
+void * faseALIVE();
 
 void llegirArguments(int argc, char const *argv[])
 {
@@ -199,16 +201,6 @@ void obrirSocketUDP()
 void enviarREGISTER_REQ()
 {
 	int a, j;
-	time_t timer;
-	char buffer[26];
-	struct tm* tm_info;
-
-	time(&timer);
-	tm_info = localtime(&timer);
-
-	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-
-	printf("%s: envio paquet\n", buffer);
 	for (j = 0; j < sizeof(num_random); ++j)
 	{
 		num_random[j]='0';
@@ -234,11 +226,6 @@ void tractarPaquetACK()
 			printf("setsockopt failed\n");
 
 	recvfrom(sockUDP, paquetbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
-
-	for (i = 0; i < 78; i++) {
-		printf("%c", paquetbo[i]);
-	}
-
 	if(paquetbo[0]!=REGISTER_REQ)
 	{
 		estat=UNKNOWN;
@@ -275,7 +262,6 @@ void camviarEstatRej()
 	int i;
 	if (paquetbo[0]==REGISTER_ACK)
 	{
-		printf("Client en estat REGISTERED.\n");
 		estat=REGISTERED;
 		for (i = 0; i < 78; ++i) /*resetejem paquet*/
 		{
@@ -289,7 +275,7 @@ void camviarEstatRej()
 		if (intents_conexio==q)
 		{
 			printf("Rebut paquet REGISTER_NACK i intents de conexio maxims realitzats. Tancant client.\n");
-			/*falta informar de error*/
+			/*TODO: falta informar de error*/
 			exit(0);
 		} else {
 			printf("Rebut paquet REGISTER_NACK iniciant intent de conexio nou.\n");
@@ -309,7 +295,6 @@ void faseREGISTER_ACK()
 	while (intents_conexio<q)
 	{
 		intents_conexio++;
-		printf("intent de conexio: %i\n", intents_conexio);
 		num_paquets_enviats=0;
 		temps_entre_paquets = t;
 		for (i=1; i<n; ++i)
@@ -345,16 +330,6 @@ void faseREGISTER_ACK()
 void * enviarALIVE_INF()
 {
 	int a;
-	time_t timer;
-	char buffer[26];
-	struct tm* tm_info;
-
-	time(&timer);
-	tm_info = localtime(&timer);
-
-	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-
-	printf("%s: envio paquet ALIVE_INF\n", buffer);
 	paquetbo=crearPaquet(ALIVE_INF, num_random, data);
 	a=sendto(sockUDP,paquetbo,78,0,(struct sockaddr*)&servaddr,sizeof(servaddr));
 				if(a<0)
@@ -368,12 +343,19 @@ void * enviarALIVE_INF()
 void * tractarALIVE_ACK()
 {
 	int i, j;
+	char buffer[26];
+	struct tm* tm_info;
 	socklen_t laddr_server;
+	time_t timer;
+	time(&timer);
+	tm_info = localtime(&timer);
+
+
+
+
 
 	timeout.tv_sec = 3.0;
 	timeout.tv_usec = 0.0;
-
-	printf("Entro a tractarALIVE_ACK\n");
 
 	if (setsockopt(sockUDP, SOL_SOCKET, SO_RCVTIMEO,&timeout,sizeof(timeout)))
 			printf("setsockopt failed\n");
@@ -381,14 +363,16 @@ void * tractarALIVE_ACK()
 	if(paquetrebutbo[0]==ALIVE_ACK&&estat == REGISTERED)
 	{
 		estat=ALIVE;
-		printf("Client en estat ALIVE.\n");
+		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+		printf("%s: MSG: =>  Equip passa a l'estat: ALIVE\n", buffer);
 	} else if (paquetrebutbo[0]==ALIVE_ACK){
 		estat = ALIVE;
 	} else if (paquetrebutbo[0]==ALIVE_NACK) {
 		return NULL;
 	} else if (paquetrebutbo[0]==ALIVE_REJ) {
 		estat = DISCONNECTED;
-		printf("Client en estat DISCONNECTED. Rebut ALIVE_REJ. Iniciant nou proces registre.\n");
+		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+		printf("%s: MSG: =>  Equip passa a l'estat: DISCONNECTED. Rebut ALIVE_REJ. Iniciant nou proces registre.\n", buffer);
 		intents_conexio = 0;
 		faseREGISTER_ACK();
 		camviarEstatRej();
@@ -412,7 +396,6 @@ void * tractarALIVE_ACK()
 		j++;
 	}
 	if (strcmp(num_randomALIVE,num_random)==0&&strcmp(nom_serverALIVE,nom_server)==0&&strcmp(mac_address_serverALIVE,mac_address_server)==0) {
-		printf("Rebut alive reiniciant comptador\n");
 		num_alives_per_rebre = 0;
 	}
 	for (i = 0; i < 78; ++i) /*resetejem paquet*/
@@ -422,7 +405,7 @@ void * tractarALIVE_ACK()
 	return NULL;
 }
 
-void faseALIVE()
+void * faseALIVE()
 {
 
 	while (num_alives_per_rebre<=u) {
@@ -433,24 +416,51 @@ void faseALIVE()
 
 	pthread_join(threadEnviar,NULL);
 	pthread_join(threadRebre,NULL);
+	return NULL;
 }
 
 int main (int argc, char const *argv[])
 {
+	char buffer[26];
+	char string[10];
+	struct tm* tm_info;
+	struct pollfd mypoll = { STDIN_FILENO, POLLIN|POLLPRI };
+	time_t timer;
+	time(&timer);
+	tm_info = localtime(&timer);
+
+	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+
+	printf("%s: MSG: =>  Equip passa a l'estat: DISCONNECTED\n", buffer);
 	estat = DISCONNECTED;
 	llegirArguments(argc, argv);
 	readFile();
 	obrirSocketUDP();
 
+	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+	printf("%s: MSG: =>  Equip passa a l'estat: WAIT_REG\n", buffer);
 	estat = WAIT_REG;
-	printf("entro a register ack\n");
 	faseREGISTER_ACK();
 	camviarEstatRej();
 	if (estat==REGISTERED) {
-		faseALIVE();
+		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+		printf("%s: MSG: =>  Equip passa a l'estat: REGISTERED\n", buffer);
+		pthread_create(&threadFaseAlive, NULL, faseALIVE, NULL);
 	}
 
+	while (num_alives_per_rebre<=u) {
+		if(poll(&mypoll, 1, 100) )
+		{
+				scanf("%9s", string);
+				printf("%s\n", string);
+				if (strcmp(string, "quit")==0) {
+					exit(0);
+				}
+		}
 
+	}
+
+	pthread_join(threadFaseAlive,NULL);
 	close(sockUDP);
   exit(0);
 }
