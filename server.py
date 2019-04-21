@@ -22,6 +22,8 @@ ALIVE_ACK = 0x11
 ALIVE_NACK = 0x12
 ALIVE_REJ = 0x13
 
+diccionari_adresses = {}
+diccionari_num_randoms = {}
 
 def agafardada(int,list):
 	h = list[int]
@@ -88,6 +90,8 @@ def obrir_socket_UDP():
 def tractar_paquet(paquet):
 	global tipus_paquet, nom_client, MAC_client, num_random
 	tipus_paquet = paquet [0]
+	tipus_paquet = struct.unpack('B',tipus_paquet)
+	tipus_paquet = tipus_paquet[0]
 	nom_client = paquet [1:7]
 	nom_client = nom_client.split('\0')
 	nom_client = nom_client[0]
@@ -122,48 +126,64 @@ def crear_paquet(tipus_paquet, num_random):
 	return package
 
 def respondre_registre(): ## TODO: Falta fer kuan adressa diferent
-	global num_random
+	global num_random, address, nom_client
 	if diccionari_noms_equips.get(nom_client) == DISCONNECTED:
 		if num_random=="000000":
 			num_random = ""
 			for x in range(6):
 				num_random = num_random + str(random.randint(0,9))
+			print nom_client
+			diccionari_num_randoms [nom_client] = num_random
+			diccionari_adresses [nom_client] = address
 			paquet = crear_paquet(REGISTER_ACK, num_random)
 			diccionari_noms_equips[nom_client] = REGISTERED
 		else:
 			paquet = crear_paquet(REGISTER_NACK, "000000")
+	elif diccionari_num_randoms.get(nom_client)==num_random:
+		paquet = crear_paquet(REGISTER_ACK, diccionari_num_randoms.get(nom_client))
+		diccionari_noms_equips[nom_client] = REGISTERED
+
 	else:
-		paquet = crear_paquet(REGISTER_ACK, num_random)
+		paquet = crear_paquet(REGISTER_REJ, "000000")
+		socket_udp.sendto(paquet, address)
 
 	socket_udp.sendto(paquet, address)
 
 def mantenir_comunicacio():
-	global num_random, address
-	address_bo = address
-	num_random_bo = num_random
-	data, address = socket_udp.recvfrom(78)
-	tractar_paquet(data)
-	if can_answer() and address_bo==address and num_random_bo == num_random:
+	global num_random, address, nom_client, address_bo, num_random_bo
+	print diccionari_num_randoms.get(nom_client), num_random
+	print diccionari_adresses.get(nom_client), address
+	if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random:
+		print "responent a", nom_client, "ALIVE_ACK"
 		paquet = crear_paquet(ALIVE_ACK, num_random)
 	elif can_answer():
+		print "responent a", nom_client, "ALIVE_NACK"
 		paquet = crear_paquet(ALIVE_NACK, num_random)
 	else:
+		print "responent a", nom_client, "ALIVE_REJ"
 		paquet = crear_paquet(ALIVE_REJ, num_random)
+
 	socket_udp.sendto(paquet, address)
+
+def respondre_paquet():
+	global tipus_paquet
+	print tipus_paquet
+	print REGISTER_REQ
+	print ALIVE_INF
+	if tipus_paquet==REGISTER_REQ:
+		respondre_registre()
+	if tipus_paquet==ALIVE_INF:
+		print nom_client
+		mantenir_comunicacio()
+
 
 def atendre_peticions():
 	global address, stop_alives
 	data, address = socket_udp.recvfrom(78)
 	tractar_paquet(data)
 	if can_answer():
-		respondre_registre()
-		while True:
-			mantenir_comunicacio()
-			if stop_alives == True:
-				break
-	else:
-		paquet = crear_paquet(REGISTER_REJ, "000000")
-		socket_udp.sendto(paquet, address)
+		respondre_paquet()
+
 
 def atendre_comandes():
 	comanda = raw_input()
@@ -172,7 +192,7 @@ def atendre_comandes():
 	elif comanda == "list":
 		print "********************** LLISTA EQUIPS *************************"
 		for x, y in diccionari_noms_equips.items():
-		  print x, y
+		  print x, estatAlletres.get(y)
 		print "\n************************************************************"
 	else:
 		print "Comanda no reconeguda."
