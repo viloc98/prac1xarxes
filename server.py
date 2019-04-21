@@ -8,7 +8,7 @@ WAIT_REG = 2
 REGISTERED = 3
 ALIVE = 4
 
-estatAlletres={1:"DISCONNECTED", 2:"WAIT_REG", 3:"REGISTERED", 163:"ALIVE"}
+estatAlletres={1:"DISCONNECTED", 2:"WAIT_REG", 3:"REGISTERED", 4:"ALIVE"}
 
 # TIPUS DE PAQUETS
 REGISTER_REQ = 0x00
@@ -123,9 +123,11 @@ def crear_paquet(tipus_paquet, num_random):
 		package = struct.pack('B',tipus_paquet) + nom_servidor + "\0" + MACServidor + "\0" + num_random  + "\0" + struct.pack('70B',*([0]* 70))
 	elif tipus_paquet == ALIVE_NACK:
 		package = struct.pack('B',tipus_paquet) + "000000" + "\0" + "000000000000" + "\0" + num_random + "\0" + "ERROR: Client no autoritzat." + "\0" + struct.pack('70B',*([0]* 70))
+	elif tipus_paquet == ALIVE_REJ:
+		package = struct.pack('B',tipus_paquet) + "000000" + "\0" + "000000000000" + "\0" + num_random + "\0" + "ERROR: Client no autoritzat o no registrat encara." + "\0" + struct.pack('70B',*([0]* 70))
 	return package
 
-def respondre_registre(): ## TODO: Falta fer kuan adressa diferent
+def respondre_registre():
 	global num_random, address, nom_client
 	if diccionari_noms_equips.get(nom_client) == DISCONNECTED:
 		if num_random=="000000":
@@ -139,7 +141,7 @@ def respondre_registre(): ## TODO: Falta fer kuan adressa diferent
 			diccionari_noms_equips[nom_client] = REGISTERED
 		else:
 			paquet = crear_paquet(REGISTER_NACK, "000000")
-	elif diccionari_num_randoms.get(nom_client)==num_random:
+	elif diccionari_num_randoms.get(nom_client)==num_random and diccionari_adresses.get(nom_client) == address:
 		paquet = crear_paquet(REGISTER_ACK, diccionari_num_randoms.get(nom_client))
 		diccionari_noms_equips[nom_client] = REGISTERED
 
@@ -151,34 +153,29 @@ def respondre_registre(): ## TODO: Falta fer kuan adressa diferent
 
 def mantenir_comunicacio():
 	global num_random, address, nom_client, address_bo, num_random_bo
-	print diccionari_num_randoms.get(nom_client), num_random
-	print diccionari_adresses.get(nom_client), address
-	if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random:
-		print "responent a", nom_client, "ALIVE_ACK"
-		paquet = crear_paquet(ALIVE_ACK, num_random)
-	elif can_answer():
-		print "responent a", nom_client, "ALIVE_NACK"
-		paquet = crear_paquet(ALIVE_NACK, num_random)
+	if diccionari_noms_equips.get(nom_client) == ALIVE or diccionari_noms_equips.get(nom_client) == REGISTERED:
+		if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random:
+			diccionari_noms_equips[nom_client] = ALIVE
+			paquet = crear_paquet(ALIVE_ACK, num_random)
+		elif can_answer():
+			paquet = crear_paquet(ALIVE_NACK, num_random)
+		else:
+			paquet = crear_paquet(ALIVE_REJ, num_random)
 	else:
-		print "responent a", nom_client, "ALIVE_REJ"
 		paquet = crear_paquet(ALIVE_REJ, num_random)
 
 	socket_udp.sendto(paquet, address)
 
 def respondre_paquet():
 	global tipus_paquet
-	print tipus_paquet
-	print REGISTER_REQ
-	print ALIVE_INF
 	if tipus_paquet==REGISTER_REQ:
 		respondre_registre()
 	if tipus_paquet==ALIVE_INF:
-		print nom_client
 		mantenir_comunicacio()
 
 
 def atendre_peticions():
-	global address, stop_alives
+	global address
 	data, address = socket_udp.recvfrom(78)
 	tractar_paquet(data)
 	if can_answer():
@@ -200,7 +197,6 @@ def atendre_comandes():
 lectura_fitxer_cfg()
 lectura_fitxer_equips()
 obrir_socket_UDP()
-stop_alives = False
 while True:
 	readable, writable, exceptional = select.select([socket_udp, sys.stdin], [], [])
 	for s in readable:
@@ -208,5 +204,4 @@ while True:
 			t = threading.Thread(target=atendre_peticions)
 			t.start()
 		else:
-			stop_alives = True
 			atendre_comandes()
