@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import socket, sys, struct, time, threading, os, random, threading, select
+import socket, sys, struct, time, threading, os, random, threading, select, datetime
+
 
 # ESTATS
 DISCONNECTED = 1
@@ -24,6 +25,8 @@ ALIVE_REJ = 0x13
 
 diccionari_adresses = {}
 diccionari_num_randoms = {}
+diccionari_temps_alives = {}
+lock = threading.Lock()
 
 def agafardada(int,list):
 	h = list[int]
@@ -87,6 +90,9 @@ def obrir_socket_UDP():
 		print "No s'ha pogut fer el bind del socket"
 		exit()
 
+def segons():
+    return int(str(datetime.datetime.now().time())[0:2])*3600 + int(str(datetime.datetime.now().time())[3:5])*60 + int(str(datetime.datetime.now().time())[6:8])
+
 def tractar_paquet(paquet):
 	global tipus_paquet, nom_client, MAC_client, num_random
 	tipus_paquet = paquet [0]
@@ -134,7 +140,6 @@ def respondre_registre():
 			num_random = ""
 			for x in range(6):
 				num_random = num_random + str(random.randint(0,9))
-			print nom_client
 			diccionari_num_randoms [nom_client] = num_random
 			diccionari_adresses [nom_client] = address
 			paquet = crear_paquet(REGISTER_ACK, num_random)
@@ -154,9 +159,19 @@ def respondre_registre():
 def mantenir_comunicacio():
 	global num_random, address, nom_client, address_bo, num_random_bo
 	if diccionari_noms_equips.get(nom_client) == ALIVE or diccionari_noms_equips.get(nom_client) == REGISTERED:
-		if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random:
+		if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random and diccionari_noms_equips.get(nom_client) == REGISTERED:
+
 			diccionari_noms_equips[nom_client] = ALIVE
+
 			paquet = crear_paquet(ALIVE_ACK, num_random)
+			lock.acquire(True)
+			diccionari_temps_alives[nom_client] = segons() + 6
+			lock.release()
+		if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random and diccionari_noms_equips.get(nom_client) == ALIVE:
+			paquet = crear_paquet(ALIVE_ACK, num_random)
+			lock.acquire(True)
+			diccionari_temps_alives[nom_client] = segons() + 9
+			lock.release()
 		elif can_answer():
 			paquet = crear_paquet(ALIVE_NACK, num_random)
 		else:
@@ -194,9 +209,20 @@ def atendre_comandes():
 	else:
 		print "Comanda no reconeguda."
 
+def control_alives():
+	while True:
+		lock.acquire(True)
+		for x in diccionari_temps_alives:
+			if diccionari_temps_alives[x] < segons() and diccionari_noms_equips.get(x)!=DISCONNECTED:
+				diccionari_noms_equips[x]=DISCONNECTED
+		lock.release()
+
 lectura_fitxer_cfg()
 lectura_fitxer_equips()
 obrir_socket_UDP()
+thread_control_alives = threading.Thread(target=control_alives)
+thread_control_alives.start()
+
 while True:
 	readable, writable, exceptional = select.select([socket_udp, sys.stdin], [], [])
 	for s in readable:
@@ -205,3 +231,5 @@ while True:
 			t.start()
 		else:
 			atendre_comandes()
+
+# taula temps k alives epiren thrad comprova hora de ara mes gran k alguna

@@ -47,7 +47,7 @@ int q = 3;
 int r = 3;
 int u = 3;
 
-
+int restart = 0;
 
 float temps_entre_paquets;
 int estat;
@@ -324,6 +324,7 @@ void faseREGISTER_ACK()
 		printf("Connexio fallida!!!\n");
 		sleep(s);
 	}
+	printf("%s\n", "Intents de registre màxims realitzats. Tancant client.");
 	exit(0);
 }
 
@@ -349,10 +350,6 @@ void * tractarALIVE_ACK()
 	time_t timer;
 	time(&timer);
 	tm_info = localtime(&timer);
-
-
-
-
 
 	timeout.tv_sec = 3.0;
 	timeout.tv_usec = 0.0;
@@ -416,6 +413,7 @@ void * faseALIVE()
 
 	pthread_join(threadEnviar,NULL);
 	pthread_join(threadRebre,NULL);
+	num_alives_per_rebre = 0;
 	return NULL;
 }
 
@@ -429,35 +427,37 @@ int main (int argc, char const *argv[])
 	time(&timer);
 	tm_info = localtime(&timer);
 
-	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-
-	printf("%s: MSG: =>  Equip passa a l'estat: DISCONNECTED\n", buffer);
-	estat = DISCONNECTED;
-	llegirArguments(argc, argv);
-	readFile();
-	obrirSocketUDP();
-
-	strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-	printf("%s: MSG: =>  Equip passa a l'estat: WAIT_REG\n", buffer);
-	estat = WAIT_REG;
-	faseREGISTER_ACK();
-	camviarEstatRej();
-	if (estat==REGISTERED) {
 		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-		printf("%s: MSG: =>  Equip passa a l'estat: REGISTERED\n", buffer);
-		pthread_create(&threadFaseAlive, NULL, faseALIVE, NULL);
-	}
-	while (num_alives_per_rebre<=u) {
-		if(poll(&mypoll, 1, 100) )
+
+		printf("%s: MSG: =>  Equip passa a l'estat: DISCONNECTED\n", buffer);
+		estat = DISCONNECTED;
+		llegirArguments(argc, argv);
+		readFile();
+		obrirSocketUDP();
+		while (restart == 0)
 		{
-				scanf("%9s", string);
-				printf("%s\n", string);
-				if (strcmp(string, "quit")==0) {
-					exit(0);
-				}
+		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+		printf("%s: MSG: =>  Equip passa a l'estat: WAIT_REG\n", buffer);
+		estat = WAIT_REG;
+		faseREGISTER_ACK();
+		camviarEstatRej();
+		if (estat==REGISTERED) {
+			strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+			printf("%s: MSG: =>  Equip passa a l'estat: REGISTERED\n", buffer);
+			pthread_create(&threadFaseAlive, NULL, faseALIVE, NULL);
 		}
+		while (num_alives_per_rebre<=u) {
+			if(poll(&mypoll, 1, 100) )
+			{
+					scanf("%9s", string);
+					if (strcmp(string, "quit")==0) {
+						exit(0);
+					}
+			}
+		}
+		pthread_join(threadFaseAlive,NULL);
+
 	}
-	pthread_join(threadFaseAlive,NULL);
 	close(sockUDP);
   exit(0);
 }
