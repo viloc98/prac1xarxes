@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import socket, sys, struct, time, threading, os, random, threading, select, datetime
-
+import socket, sys, struct, time, threading, os, random, select, datetime
+#variable per poder camviar la ip del servidor
+ip_servidor='localhost'
 
 # ESTATS
 DISCONNECTED = 1
@@ -85,7 +86,7 @@ def obrir_socket_UDP():
 		exit()
 
 	try:
-		socket_udp.bind(('localhost', UDPport))
+		socket_udp.bind((ip_servidor, UDPport))
 	except:
 		print "No s'ha pogut fer el bind del socket"
 		exit()
@@ -105,18 +106,7 @@ def tractar_paquet(paquet):
 	num_random = paquet [21:27]
 
 def can_answer():
-	global nom_client
-	i = 0
-	j = 0
-	if MAC_client in llistaMAC:
-		i = 1
-	if nom_client in diccionari_noms_equips:
-		j = 1
-
-	if i==1 and j==1:
-		return True
-	else:
-		return False
+	return MAC_client in llistaMAC and nom_client in diccionari_noms_equips
 
 def crear_paquet(tipus_paquet, num_random):
 	if tipus_paquet == REGISTER_ACK:
@@ -133,7 +123,7 @@ def crear_paquet(tipus_paquet, num_random):
 		package = struct.pack('B',tipus_paquet) + "000000" + "\0" + "000000000000" + "\0" + num_random + "\0" + "ERROR: Client no autoritzat o no registrat encara." + "\0" + struct.pack('70B',*([0]* 70))
 	return package
 
-def respondre_registre():
+def respondre_registre(): ## TODO: Preguntar lo de kuan estar registered la adreça k coi passa
 	global num_random, address, nom_client
 	if diccionari_noms_equips.get(nom_client) == DISCONNECTED:
 		if num_random=="000000":
@@ -141,14 +131,17 @@ def respondre_registre():
 			for x in range(6):
 				num_random = num_random + str(random.randint(0,9))
 			diccionari_num_randoms [nom_client] = num_random
-			diccionari_adresses [nom_client] = address
+			diccionari_adresses [nom_client] = address[0]
 			paquet = crear_paquet(REGISTER_ACK, num_random)
+			print  str(datetime.datetime.now().time())[:8]+": MSG.  =>  Equip", nom_client, "passa a estat: REGISTERED"
 			diccionari_noms_equips[nom_client] = REGISTERED
 		else:
 			paquet = crear_paquet(REGISTER_NACK, "000000")
-	elif diccionari_num_randoms.get(nom_client)==num_random and diccionari_adresses.get(nom_client) == address:
+
+	elif diccionari_adresses.get(nom_client) == address[0]:
 		paquet = crear_paquet(REGISTER_ACK, diccionari_num_randoms.get(nom_client))
 		diccionari_noms_equips[nom_client] = REGISTERED
+		print  str(datetime.datetime.now().time())[:8]+": MSG.  =>  Equip", nom_client, "passa a estat: REGISTERED"
 
 	else:
 		paquet = crear_paquet(REGISTER_REJ, "000000")
@@ -159,15 +152,14 @@ def respondre_registre():
 def mantenir_comunicacio():
 	global num_random, address, nom_client, address_bo, num_random_bo
 	if diccionari_noms_equips.get(nom_client) == ALIVE or diccionari_noms_equips.get(nom_client) == REGISTERED:
-		if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random and diccionari_noms_equips.get(nom_client) == REGISTERED:
-
+		if can_answer() and diccionari_adresses.get(nom_client)==address[0] and diccionari_num_randoms.get(nom_client) == num_random and diccionari_noms_equips.get(nom_client) == REGISTERED:
 			diccionari_noms_equips[nom_client] = ALIVE
-
+			print  str(datetime.datetime.now().time())[:8]+": MSG.  =>  Equip", nom_client, "passa a estat: ALIVE"
 			paquet = crear_paquet(ALIVE_ACK, num_random)
 			lock.acquire(True)
 			diccionari_temps_alives[nom_client] = segons() + 6
 			lock.release()
-		if can_answer() and diccionari_adresses.get(nom_client)==address and diccionari_num_randoms.get(nom_client) == num_random and diccionari_noms_equips.get(nom_client) == ALIVE:
+		if can_answer() and diccionari_adresses.get(nom_client)==address[0] and diccionari_num_randoms.get(nom_client) == num_random and diccionari_noms_equips.get(nom_client) == ALIVE:
 			paquet = crear_paquet(ALIVE_ACK, num_random)
 			lock.acquire(True)
 			diccionari_temps_alives[nom_client] = segons() + 9
@@ -200,6 +192,7 @@ def atendre_peticions():
 def atendre_comandes():
 	comanda = raw_input()
 	if comanda == "quit":
+		socket_udp.close()
 		os._exit(1)
 	elif comanda == "list":
 		print "********************** LLISTA EQUIPS *************************"
@@ -215,6 +208,9 @@ def control_alives():
 		for x in diccionari_temps_alives:
 			if diccionari_temps_alives[x] < segons() and diccionari_noms_equips.get(x)!=DISCONNECTED:
 				diccionari_noms_equips[x]=DISCONNECTED
+				print  str(datetime.datetime.now().time())[:8]+": MSG.  =>  Equip", nom_client, "passa a estat: DISCONNECTED"
+				#es fica un nombre molt gran de forma que si es torna a registrar aquest client no el fiqui a desconectat si esta registrat
+				diccionari_temps_alives[x] = 9999999999
 		lock.release()
 
 lectura_fitxer_cfg()
