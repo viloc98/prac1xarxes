@@ -98,7 +98,6 @@ void llegir_arguments(int argc, char const *argv[])
 		{
 			file_to_read = (char *) malloc(strlen(argv[i+1]));
 			strcpy(file_to_read, argv[i+1]);
-			printf("%s\n", file_to_read);
 		}
 	}
 }
@@ -278,6 +277,7 @@ void camviar_estat_rej()
 	} else if (paquetbo[0]==REGISTER_REJ){
 		estat=DISCONNECTED;
 		printf("Rebut REGISTER_REJ, tancant el client.\n");
+		printf("%s\n", data);
 		exit(0);
 	} else if (paquetbo[0]==REGISTER_NACK){
 		if (intents_conexio==q)
@@ -352,7 +352,7 @@ void * enviar_ALIVE_INF()
 	num_alives_per_rebre = num_alives_per_rebre + 1;
 	return NULL;
 }
-
+/*Funció que tracta la resposta a un ALIVE_INF*/
 void * tractar_ALIVE_ACK()
 {
 	int i, j;
@@ -371,6 +371,7 @@ void * tractar_ALIVE_ACK()
 	recvfrom(sockUDP, paquetrebutbo, 78,0, (struct sockaddr *) &servaddr,&laddr_server);
 	if(paquetrebutbo[0]==ALIVE_ACK&&estat == REGISTERED)
 	{
+		/*Si es el primer es camvia el estat a ALIVE*/
 		estat=ALIVE;
 		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
 		printf("%s: MSG: =>  Equip passa a l'estat: ALIVE\n", buffer);
@@ -382,9 +383,12 @@ void * tractar_ALIVE_ACK()
 		estat = DISCONNECTED;
 		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
 		printf("%s: MSG: =>  Equip passa a l'estat: DISCONNECTED. Rebut ALIVE_REJ. Iniciant nou proces registre.\n", buffer);
+		/*S'ha rebut un ALIVE_REJ i per tant es comença des de 0 un nou proces de registre*/
 		intents_conexio = 0;
+		return NULL;
 	}
 	j=0;
+	/*Es prepara el paquet per a poder analitzar-lo*/
 	for (i = 1; i < 8; ++i)
 	{
 		nom_serverALIVE[j]=paquetrebutbo[i];
@@ -402,6 +406,7 @@ void * tractar_ALIVE_ACK()
 		num_randomALIVE[j]=paquetrebutbo[i];
 		j++;
 	}
+	/*Es reseteja comptador alives_per_rebre ja que solament s'arriba aqui si ALIVE_ACK*/
 	if (strcmp(num_randomALIVE,num_random)==0&&strcmp(nom_serverALIVE,nom_server)==0&&strcmp(mac_address_serverALIVE,mac_address_server)==0) {
 		num_alives_per_rebre = 0;
 	}
@@ -411,7 +416,7 @@ void * tractar_ALIVE_ACK()
 	}
 	return NULL;
 }
-
+/*Funció que va cridant a les funcions enviar i rebre alives mentres el servidor respongui*/
 void * fase_alive()
 {
 /*mentre el nombre de alive per rebre no sigui més que 3*/
@@ -457,6 +462,8 @@ int main (int argc, char const *argv[])
 			printf("%s: MSG: =>  Equip passa a l'estat: REGISTERED\n", buffer);
 			pthread_create(&threadfase_alive, NULL, fase_alive, NULL);
 		}
+		/*Es comprova si s'ha rebut alguna comanda*/
+		/*es pa un poll per si el client es tanca sol perque no ha rebut 3 alives no es quedi esperant a una comanda per acabar de tancar*/
 		while (num_alives_per_rebre<=u&&(estat==ALIVE||estat==REGISTERED)) {
 			if(poll(&mypoll, 1, 100) )
 			{
